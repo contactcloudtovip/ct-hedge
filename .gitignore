@@ -1,0 +1,24 @@
+# Fyers API session and logs
+fyers_sessions.json
+fyersApi.log
+fyersRequests.log
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment variables
+.env
+
+# IDE settings
+.vscode/
+.idea/
+
+# Virtual environment
+venv/
+env/
+
+# Credentials and sensitive data
+**/credentials.json
+**/config.json
