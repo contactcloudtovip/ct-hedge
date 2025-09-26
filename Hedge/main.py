@@ -1,6 +1,9 @@
 import os
 import time
+from datetime import datetime
 from account import FyersAccount
+from strategy.fifteen_daily import FifteenDailyStrategy
+import asyncio
 
 def test_load_balancer(fyers):
     """Test load balancer functionality"""
@@ -158,9 +161,9 @@ def test_all_accounts(fyers):
     print(f"Successful: {success_count}")
     print(f"Success Rate: {success_rate:.1f}%")
 
-def main():
+async def main():
     try:
-        # Configure multiple accounts
+        # Configure accounts
         accounts = [
             {
                 "client_id": "X65ZE2P406-100",
@@ -180,14 +183,26 @@ def main():
             }
         ]
 
-        # Initialize with multiple accounts
+        # Initialize Fyers account with load balancer
+        print("\nInitializing Fyers account...")
         fyers = FyersAccount(accounts)
         
-        # Run comprehensive tests
-        test_all_accounts(fyers)
+        # Create strategy instance
+        print("\nCreating strategy...")
+        strategy = FifteenDailyStrategy(fyers, capital=1000000)
+        
+        # Set backtest date range
+        start_date = datetime(2025, 9, 23)  # First day of current expiry
+        end_date = datetime.now()
+        
+        print(f"\nRunning backtest from {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+        await strategy.run_backtest(start_date, end_date)
+        
+        print("\nBacktest complete!")
 
     except Exception as e:
         print(f"Error: {str(e)}")
 
 if __name__ == "__main__":
-    main()
+    # Run the async main function
+    asyncio.run(main())

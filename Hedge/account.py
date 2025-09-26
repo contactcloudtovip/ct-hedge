@@ -32,6 +32,7 @@ class FyersLoadBalancer:
     def __init__(self):
         self.active_accounts = deque()  # [{client_id, model, calls, last_reset}]
         self.calls_per_minute = 100
+        self._current_account = None  # Add this line
         
     def add_account(self, client_id, fyers_model):
         """Add an authenticated account to the pool"""
@@ -58,9 +59,17 @@ class FyersLoadBalancer:
         for _ in range(len(self.active_accounts)):
             self.active_accounts.rotate(-1)
             if self.active_accounts[0]['calls'] < self.calls_per_minute:
-                return self.active_accounts[0]
+                self._current_account = self.active_accounts[0]  # Add this line
+                return self._current_account
                 
         raise Exception("All accounts have reached rate limit")
+
+    @property
+    def current_account(self):
+        """Get current active account"""
+        if not self._current_account:
+            self._current_account = self.get_next_account()
+        return self._current_account
 
 class FyersAccount:
     SESSION_FILE = "fyers_sessions.json"
@@ -190,7 +199,7 @@ class FyersAccount:
         """Execute API call with load balancing and error handling"""
         for _ in range(len(self.balancer.active_accounts)):
             try:
-                account = self.balancer.get_next_account()
+                account = self.balancer.current_account  # Use property instead
                 result = getattr(account['model'], api_method)(*args, **kwargs)
                 account['calls'] += 1
                 
@@ -224,6 +233,7 @@ class FyersAccount:
                 # For rate limit errors, try next account
                 if any(code.lower() in error_str or msg.lower() in error_str 
                       for code, msg in [FyersError.ERRORS[k] for k in ['rate_limit', 'too_many_requests']]):
+                    self.balancer._current_account = None  # Reset current account
                     continue
                     
                 # For other errors, raise immediately
