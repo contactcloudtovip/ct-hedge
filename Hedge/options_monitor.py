@@ -20,97 +20,141 @@ class OptionsMonitor:
         """Get CE and PE symbols with LTP in specified range"""
         try:
             # Get BANKNIFTY spot price using correct symbol format
-            spot_symbol = "NSE:NIFTYBANK-INDEX"
+            spot_symbol = "NSE:NIFTYBANK-INDEX"  # Corrected symbol name
             quote_params = {
                 "symbols": spot_symbol
             }
             
             print("\nFetching BANKNIFTY spot price...")
-            quote = self.fyers.execute_api_call('quotes', quote_params)
-            print(f"Quote response: {quote}")
+            spot_quote = self.fyers.execute_api_call('quotes', quote_params)
+            print(f"Spot quote response: {spot_quote}")  # Debug print
             
-            if isinstance(quote, dict) and 'd' in quote:
-                spot_data = quote['d'][0] if quote['d'] else {}
-                spot_price = float(spot_data.get('v', {}).get('lp', 0))
-                print(f"BANKNIFTY spot price: {spot_price}")
+            if isinstance(spot_quote, dict) and 'd' in spot_quote:
+                spot_data = spot_quote['d'][0] if spot_quote['d'] else {}
+                print(f"Spot data: {spot_data}")  # Debug print
                 
-                if not spot_price:
-                    raise ValueError("Unable to get valid spot price")
+                if isinstance(spot_data, dict) and 'v' in spot_data:
+                    v_data = spot_data['v']
+                    print(f"V data: {v_data}")  # Debug print
                     
-                # Calculate strike prices ±2000 points from spot
-                base_strike = round(spot_price / 100) * 100
-                strikes = range(base_strike - 2000, base_strike + 2000, 100)
-                
-                # Get current expiry format
-                now = datetime.now()
-                expiry = f"{now.strftime('%y')}{now.strftime('%b').upper()}"  # Example: MAR24
-                
-                # Get option symbols with correct format
-                option_symbols = []
-                for strike in strikes:
-                    # Format: BANKNIFTY{Year}{Month}{StrikePrice}{CE/PE}
-                    ce_symbol = f"NFO:BANKNIFTY25SEP{expiry}{strike}CE"
-                    pe_symbol = f"NFO:BANKNIFTY{expiry}{strike}PE"
-                    option_symbols.extend([ce_symbol, pe_symbol])
-
-                    
-                print(f"\nGenerated {len(option_symbols)} option symbols")
-                print("Sample symbols:")
-                for symbol in option_symbols[:4]:
-                    print(f"  {symbol}")
-                
-                # Get quotes in batches of 50
-                self.ce_options.clear()
-                self.pe_options.clear()
-                
-                for i in range(0, len(option_symbols), 50):
-                    batch = option_symbols[i:i+50]
-                    print(batch)
-                    quotes = self.fyers.execute_api_call('quotes', {
-                        "symbols": ",".join(batch)
-                    })
-                    
-                    if isinstance(quotes, dict) and 'd' in quotes:
-                        for quote_data in quotes['d']:
-                            # print(quote)
-                            symbol = quote_data.get('n', '')
-                            ltp = quote_data.get('v', {}).get('lp', 0)
+                    if isinstance(v_data, dict):
+                        spot_price = float(v_data.get('lp', 0))
+                        print(f"BANKNIFTY spot price: {spot_price}")
+                        
+                        if not spot_price:
+                            raise ValueError("Unable to get valid spot price")
                             
-                            if min_ltp < ltp < max_ltp:
-                                depth = self._get_market_depth(symbol)
-                                option_data = {
-                                    'symbol': symbol,
-                                    'ltp': ltp,
-                                    'change': quote_data.get('v', {}).get('pc', 0),  # Percentage change
-                                    'volume': quote_data.get('v', {}).get('v', 0),   # Volume
-                                    'oi': quote_data.get('v', {}).get('oi', 0),      # Open Interest
-                                    'depth': depth
-                                }
+                        # Calculate strike prices ±2000 points from spot
+                        base_strike = round(spot_price / 100) * 100
+                        strikes = range(base_strike - 2000, base_strike + 2000, 100)
+                        
+                        # Get option symbols with correct format
+                        option_symbols = []
+                        for strike in strikes:
+                            # Format: NFO:BANKNIFTY{expiry}{strike}{CE/PE}
+                            ce_symbol = f"NSE:BANKNIFTY25SEP{strike}CE"
+                            pe_symbol = f"NSE:BANKNIFTY25SEP{strike}PE"
+                            option_symbols.extend([ce_symbol, pe_symbol])
+                            
+                        print(f"\nGenerated {len(option_symbols)} option symbols")
+                        print("Sample symbols:")
+                        for symbol in option_symbols[:4]:
+                            print(f"  {symbol}")
+                        
+                        # Process options in batches
+                        self.ce_options.clear()
+                        self.pe_options.clear()
+        
+                        # Process in batches of 25 for better reliability
+                        for i in range(0, len(option_symbols), 25):
+                            batch = option_symbols[i:i+25]
+                            batch_symbols = ",".join(batch)
+                            print(f"\nProcessing batch {i//25 + 1} of {len(option_symbols)//25 + 1}")
+                            print(f"Batch symbols: {batch_symbols}")
+            
+                            try:
+                                quotes = self.fyers.execute_api_call('quotes', {
+                                    "symbols": batch_symbols
+                                })
+                                print(f"Batch response: {quotes}")
+                
+                                if isinstance(quotes, dict) and 'd' in quotes:
+                                    for quote_data in quotes['d']:
+                                        if 'n' in quote_data and 'v' in quote_data:
+                                            symbol = quote_data['n']
+                                            v = quote_data['v']
+                            
+                                            if isinstance(v, dict):
+                                                ltp = float(v.get('lp', 0))
+                                                print(f"Symbol: {symbol}, LTP: {ltp}")
                                 
-                                if symbol.endswith('CE'):
-                                    self.ce_options[symbol] = option_data
-                                else:
-                                    self.pe_options[symbol] = option_data
+                                                if min_ltp <= ltp <= max_ltp:
+                                                    option_data = {
+                                                        'symbol': symbol,
+                                                        'ltp': ltp,
+                                                        'change': v.get('pc', 0),
+                                                        'volume': v.get('v', 0),
+                                                        'oi': v.get('oi', 0),
+                                                        'depth': self._get_market_depth(symbol)
+                                                    }
+                                    
+                                                    if 'CE' in symbol:
+                                                        self.ce_options[symbol] = option_data
+                                                        print(f"Added CE option: {symbol} with LTP: {ltp}")
+                                                    else:
+                                                        self.pe_options[symbol] = option_data
+                                                        print(f"Added PE option: {symbol} with LTP: {ltp}")
+                                                else:
+                                                    print(f"LTP {ltp} out of range ({min_ltp}-{max_ltp}) for {symbol}")
+            
+                            except Exception as batch_error:
+                                print(f"Error processing batch: {batch_error}")
+            
+                            # Add small delay between batches
+                            await asyncio.sleep(0.5)
+        
+                        print(f"\nFound {len(self.ce_options)} CE and {len(self.pe_options)} PE options in price range")
+                        if self.ce_options or self.pe_options:
+                            print("\nOptions in range:")
+                            for symbol, data in self.ce_options.items():
+                                print(f"CE: {symbol} - LTP: {data['ltp']}")
+                            for symbol, data in self.pe_options.items():
+                                print(f"PE: {symbol} - LTP: {data['ltp']}")
                 
-                print(f"\nFound {len(self.ce_options)} CE and {len(self.pe_options)} PE options in price range")
-                
-            # else:
-            #     raise ValueError(f"Invalid quote response format: {quote}")
-                
+                    else:
+                        raise ValueError("Invalid spot price data format")
+                else:
+                    raise ValueError("Invalid spot quote response")
         except Exception as e:
             print(f"Error fetching symbols: {e}")
-    
+
     def _get_market_depth(self, symbol):
         """Get market depth for a symbol"""
         try:
             depth = self.fyers.execute_api_call('depth', {"symbol": symbol})
-            return {
-                'bids': depth['d']['bids'][:5],
-                'asks': depth['d']['asks'][:5]
-            }
+            if isinstance(depth, dict) and 'd' in depth:
+                bids = depth['d'].get('bids', [])[:5]
+                asks = depth['d'].get('asks', [])[:5]
+                
+                # Ensure exactly 5 rows for bids and asks
+                while len(bids) < 5:
+                    bids.append({'qty': 0, 'price': 0})
+                while len(asks) < 5:
+                    asks.append({'qty': 0, 'price': 0})
+                    
+                return {
+                    'bids': bids,
+                    'asks': asks
+                }
         except Exception as e:
             print(f"Error fetching depth for {symbol}: {e}")
-            return {'bids': [], 'asks': []}
+        
+        # Return empty depth with 5 rows if anything fails
+        empty_rows = [{'qty': 0, 'price': 0} for _ in range(5)]
+        return {
+            'bids': empty_rows.copy(),
+            'asks': empty_rows.copy()
+        }
     
     def generate_html(self):
         """Generate HTML dashboard"""
